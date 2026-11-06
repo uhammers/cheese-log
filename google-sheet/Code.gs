@@ -51,6 +51,7 @@ function run_(req) {
     case 'undo': return undo_(req);
     case 'name': return setName_(req);
     case 'end': return endBatch_(req);
+    case 'delete': return deleteBatch_(req);
     default: return { ok: false, error: 'unknown-action' };
   }
 }
@@ -177,6 +178,22 @@ function undo_(req) {
 function setName_(req) {
   const { sh } = batchSheet_(req.uid);
   sh.getRange('B2').setValue(req.name || '');
+  return { ok: true };
+}
+
+// Removes the batch's page and its index row. If it was the newest batch, its number is used again.
+function deleteBatch_(req) {
+  const row = findIndexRow_(req.uid);
+  if (!row) return { ok: true, gone: true };          // already deleted
+  const index = indexSheet_();
+  const ss = SpreadsheetApp.getActive();
+  const code = Number(String(index.getRange(row, 1).getValue()).replace('#', ''));
+  const gid = index.getRange(row, 13).getValue();
+  const sh = ss.getSheets().find(s => s.getSheetId() === gid);
+  index.deleteRow(row);
+  if (sh) ss.deleteSheet(sh);
+  const props = PropertiesService.getScriptProperties();
+  if (code && code === Number(props.getProperty('next')) - 1) props.setProperty('next', String(code));
   return { ok: true };
 }
 

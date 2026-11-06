@@ -1,6 +1,6 @@
 // Caches the app itself so it opens without a connection.
 // Notes are never cached here: they queue in the app and sync to the sheet.
-const CACHE = "cheese-log-v1";
+const CACHE = "cheese-log-v2";
 const FILES = ["./", "index.html", "manifest.webmanifest", "icon-192.png", "icon-512.png"];
 
 self.addEventListener("install", e => {

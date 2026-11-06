@@ -67,7 +67,10 @@ input[type=text], input[type=url], input[type=password], select { width: 100%; b
 .btn.big { width: 100%; padding: 14px; font-size: 18px; }
 label.l { font-size: 14px; color: var(--muted); display: block; margin-bottom: 4px; }
 
-.feed h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0 0 6px; }
+.feed .fh { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.feed h3 { font-size: 13px; color: var(--muted); font-weight: 600; margin: 0; }
+.del { border: 1px solid var(--line); background: transparent; color: var(--warn); border-radius: 10px; padding: 4px 10px; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.del.arm { background: var(--warn); border-color: var(--warn); color: #fff; font-weight: 600; }
 .entry { display: grid; grid-template-columns: auto 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 16px; }
 .entry:last-child { border-bottom: none; }
 .entry .tm { font-family: var(--mono); font-size: 13px; color: var(--muted); direction: ltr; padding-top: 3px; }
@@ -193,7 +196,7 @@ label.l { font-size: 14px; color: var(--muted); display: block; margin-bottom: 4
         if (o.action === "start" && res.ok) { const b = byUid(o.uid); if (b) { b.code = res.code; } }
         if (!res.ok) say(`הגיליון לא קיבל: ${res.error}`, true, false);
         lastError = "";
-        queue.shift(); persist();
+        queue = queue.filter(x => x.opId !== o.opId); persist();
       }
     } finally { flushing = false; render(); }
   }
@@ -207,6 +210,7 @@ label.l { font-size: 14px; color: var(--muted); display: block; margin-bottom: 4
       const res = await r.json();
       if (!res.ok) return;
       res.batches.forEach(sb => {
+        if ((S.deleted || []).includes(sb.uid)) return;
         const b = byUid(sb.uid);
         if (b) { b.code = sb.code; if (sb.name) b.name = sb.name; }
         else S.batches.push({ uid: sb.uid, code: sb.code, name: sb.name, start: sb.start, end: sb.ended ? sb.start : null, rows: [], remote: true });
@@ -302,6 +306,28 @@ label.l { font-size: 14px; color: var(--muted); display: block; margin-bottom: 4
       return say(a ? `נרשם${bits ? ". " + bits : ""}` : `הערה נוספה ל${label(target)}`);
     }
     showHeard(raw, false, true);
+  }
+
+  // ---------- deleting a batch (tap twice to confirm) ----------
+  let armed = null, armTimer = null;
+  function askDelete(b) {
+    clearTimeout(armTimer);
+    if (armed !== b.uid) { armed = b.uid; armTimer = setTimeout(() => { armed = null; render(); }, 5000); return render(); }
+    armed = null; deleteBatch(b);
+  }
+  function deleteBatch(b) {
+    const lbl = label(b), head = queue[0];
+    const inFlight = flushing && head && head.uid === b.uid;
+    const neverSent = !inFlight && queue.some(o => o.uid === b.uid && o.action === "start");
+    queue = queue.filter(o => o.uid !== b.uid || (inFlight && o === head));   // not sent yet: just drop it
+    if (!neverSent) queue.push({ opId: uuid(), action: "delete", uid: b.uid });
+    S.deleted = (S.deleted || []).concat(b.uid).slice(-50);
+    S.batches = S.batches.filter(x => x !== b);
+    if (S.activeUid === b.uid) { S.activeUid = null; stopListening(false); }
+    if (S.timer && S.timer.uid === b.uid) S.timer = null;
+    const latest = S.batches.slice().sort((x, y) => y.start - x.start)[0];
+    S.pickedUid = latest ? latest.uid : null;
+    persist(); say(`${lbl} נמחקה מהטלפון ומהגיליון`, false, false); flush();
   }
 
   // ---------- speaking back ----------
@@ -417,7 +443,14 @@ label.l { font-size: 14px; color: var(--muted); display: block; margin-bottom: 4
       if (b.uid === S.pickedUid) o.selected = true; sel.appendChild(o);
     });
     const f = $("feed"); f.innerHTML = "";
-    const h = document.createElement("h3"); h.textContent = target ? `עדכונים ב${label(target)}` : "עדכונים"; f.appendChild(h);
+    const fh = document.createElement("div"); fh.className = "fh";
+    const h = document.createElement("h3"); h.textContent = target ? `עדכונים ב${label(target)}` : "עדכונים"; fh.appendChild(h);
+    if (target) {
+      const d = document.createElement("button"); d.type = "button"; d.className = "del" + (armed === target.uid ? " arm" : "");
+      d.textContent = armed === target.uid ? `לחץ שוב למחיקת ${label(target)}` : "מחק אצווה";
+      d.onclick = () => askDelete(target); fh.appendChild(d);
+    }
+    f.appendChild(fh);
     const rows = target ? target.rows.slice(-10).reverse() : [];
     if (!rows.length) { const p = document.createElement("p"); p.className = "empty"; p.textContent = target && target.remote ? "העדכונים של אצווה זו נמצאים בגיליון." : 'עדיין אין עדכונים. אמור "התחל" או לחץ "התחל אצווה".'; f.appendChild(p); }
     rows.forEach(r => {
